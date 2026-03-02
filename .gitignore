@@ -1,0 +1,7 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+
+# Claude Code 로컬 설정
+.claude/
