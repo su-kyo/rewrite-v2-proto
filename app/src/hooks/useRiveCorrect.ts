@@ -8,6 +8,7 @@
  * 마운트 시 즉시 생성하지 않고, fireStep1Correct / fireStep2Correct 호출 시점에
  * on-demand 로 생성하고 애니메이션 종료 후 즉시 해제한다.
  * (배경 불필요한 GPU/CPU 렌더링 방지)
+ * 단, .riv 파일 자체는 모듈 레벨 ArrayBuffer 캐시로 최초 1회만 다운로드한다.
  *
  * ── Step1 ──────────────────────────────────────────────────────────────────
  * Artboard      : step1
@@ -31,6 +32,25 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { Rive, EventType, Layout, Fit, Alignment } from '@rive-app/react-canvas';
 import type { Event as RiveEvent } from '@rive-app/canvas';
+
+// ── .riv 버퍼 캐시 ────────────────────────────────────────────────────────────
+// 인스턴스는 정답마다 on-demand로 만들되, 파일 다운로드는 최초 1회만 하도록
+// ArrayBuffer를 모듈 레벨에서 캐시한다.
+const rivBufferCache = new Map<string, Promise<ArrayBuffer>>();
+
+function loadRivBuffer(url: string): Promise<ArrayBuffer> {
+  let cached = rivBufferCache.get(url);
+  if (!cached) {
+    cached = fetch(url).then((res) => {
+      if (!res.ok) throw new Error(`riv fetch 실패: ${url} (${res.status})`);
+      return res.arrayBuffer();
+    });
+    // 실패한 Promise가 캐시에 남으면 영영 재시도 못 하므로 제거
+    cached.catch(() => rivBufferCache.delete(url));
+    rivBufferCache.set(url, cached);
+  }
+  return cached;
+}
 
 // ── 랜덤 헬퍼 ─────────────────────────────────────────────────────────────────
 
@@ -83,11 +103,20 @@ export function useRiveCorrect({ onStep2Done }: UseRiveCorrectOptions = {}): Use
   const onStep2DoneRef = useRef(onStep2Done);
   useEffect(() => { onStep2DoneRef.current = onStep2Done; }, [onStep2Done]);
 
+  // ── 호출 세대 refs (버퍼 로딩 중 새 호출/cleanup이 끼어든 경우 무효화) ────
+  const step1CallIdRef = useRef(0);
+  const step2CallIdRef = useRef(0);
+
   // ── Step1 cleanup ─────────────────────────────────────────────────────────
   // resize 핸들러를 ref에 보관해 cleanup 시 제거 가능하게 함
   const step1ResizeRef = useRef<(() => void) | null>(null);
+  const step1CleanupTimerRef = useRef<number | null>(null);
 
   const cleanupStep1 = useCallback(() => {
+    if (step1CleanupTimerRef.current !== null) {
+      window.clearTimeout(step1CleanupTimerRef.current);
+      step1CleanupTimerRef.current = null;
+    }
     if (step1ResizeRef.current) {
       window.removeEventListener('resize', step1ResizeRef.current);
       step1ResizeRef.current = null;
@@ -122,8 +151,7 @@ export function useRiveCorrect({ onStep2Done }: UseRiveCorrectOptions = {}): Use
 
   // ── Step1 정답 트리거 (on-demand 인스턴스 생성) ───────────────────────────
   const fireStep1Correct = useCallback(() => {
-    const canvas = step1CanvasRef.current;
-    if (!canvas) return;
+    if (!step1CanvasRef.current) return;
 
     // 연속 호출 방어: 기존 인스턴스 먼저 해제
     cleanupStep1();
@@ -131,64 +159,76 @@ export function useRiveCorrect({ onStep2Done }: UseRiveCorrectOptions = {}): Use
     const left = randomExclude(3, step1PrevLeft.current);
     step1PrevLeft.current = left;
 
-    const r = new Rive({
-      src: '/rive/layer_step1.riv',
-      canvas,
-      artboard: 'step1',
-      stateMachines: 'Step1SM',
-      layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
-      autoplay: true,
-      onLoad: () => {
-        // ★ ViewModel(Data Binding) 방식으로 프로퍼티 접근
-        const vm   = r.viewModelByName('Step1VM');
-        const inst = vm?.defaultInstance?.() ?? null;
-        if (inst) {
-          r.bindViewModelInstance(inst);
-          const leftProp = inst.number('left/skinID');
-          if (leftProp) leftProp.value = left;
-          inst.trigger('step1Correct')?.trigger();
-        } else {
-          console.warn('[useRiveCorrect] Step1VM 인스턴스를 찾을 수 없습니다.');
-        }
+    const callId = ++step1CallIdRef.current;
+    loadRivBuffer('/rive/layer_step1.riv')
+      .then((buffer) => {
+        // 로딩 중 새 호출이 끼어들었거나 canvas가 사라졌으면 중단
+        if (callId !== step1CallIdRef.current) return;
+        const canvas = step1CanvasRef.current;
+        if (!canvas) return;
 
-        // canvas 크기 초기화
-        const el = step1CanvasRef.current;
-        if (el) {
-          const h = window.innerHeight;
-          el.height = h;
-          el.width  = Math.round(h * (320 / 720));
-          r.resizeDrawingSurfaceToCanvas();
-        }
+        const r = new Rive({
+          buffer,
+          canvas,
+          artboard: 'step1',
+          stateMachines: 'Step1SM',
+          layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
+          autoplay: true,
+          onLoad: () => {
+            // ★ ViewModel(Data Binding) 방식으로 프로퍼티 접근
+            const vm   = r.viewModelByName('Step1VM');
+            const inst = vm?.defaultInstance?.() ?? null;
+            if (inst) {
+              r.bindViewModelInstance(inst);
+              const leftProp = inst.number('left/skinID');
+              if (leftProp) leftProp.value = left;
+              inst.trigger('step1Correct')?.trigger();
+            } else {
+              console.warn('[useRiveCorrect] Step1VM 인스턴스를 찾을 수 없습니다.');
+            }
 
-        // resize 리스너 등록
-        const handleResize = () => {
-          const el = step1CanvasRef.current;
-          if (!el || !step1RiveRef.current) return;
-          const h = window.innerHeight;
-          el.height = h;
-          el.width  = Math.round(h * (320 / 720));
-          step1RiveRef.current.resizeDrawingSurfaceToCanvas();
-        };
-        step1ResizeRef.current = handleResize;
-        window.addEventListener('resize', handleResize);
+            // canvas 크기 초기화
+            const el = step1CanvasRef.current;
+            if (el) {
+              const h = window.innerHeight;
+              el.height = h;
+              el.width  = Math.round(h * (320 / 720));
+              r.resizeDrawingSurfaceToCanvas();
+            }
 
-        // ★ 애니메이션 종료 후 cleanup (App.tsx setStep(2) 1200ms보다 여유있게)
-        window.setTimeout(() => {
-          // onLoad 이후 외부에서 이미 cleanup된 경우 재호출 방지
-          if (step1RiveRef.current === r) {
-            cleanupStep1();
-          }
-        }, 1400);
-      },
-    });
+            // resize 리스너 등록
+            const handleResize = () => {
+              const el = step1CanvasRef.current;
+              if (!el || !step1RiveRef.current) return;
+              const h = window.innerHeight;
+              el.height = h;
+              el.width  = Math.round(h * (320 / 720));
+              step1RiveRef.current.resizeDrawingSurfaceToCanvas();
+            };
+            step1ResizeRef.current = handleResize;
+            window.addEventListener('resize', handleResize);
 
-    step1RiveRef.current = r;
+            // ★ 애니메이션 종료 후 cleanup (App.tsx setStep(2) 1200ms보다 여유있게)
+            step1CleanupTimerRef.current = window.setTimeout(() => {
+              step1CleanupTimerRef.current = null;
+              // onLoad 이후 외부에서 이미 cleanup된 경우 재호출 방지
+              if (step1RiveRef.current === r) {
+                cleanupStep1();
+              }
+            }, 1400);
+          },
+        });
+
+        step1RiveRef.current = r;
+      })
+      .catch((error) => {
+        console.warn('[useRiveCorrect] layer_step1.riv 로딩 실패', error);
+      });
   }, [cleanupStep1]);
 
   // ── Step2 정답 트리거 (on-demand 인스턴스 생성) ───────────────────────────
   const fireStep2Correct = useCallback(() => {
-    const canvas = step2CanvasRef.current;
-    if (!canvas) return;
+    if (!step2CanvasRef.current) return;
 
     // 연속 호출 방어: 기존 인스턴스 먼저 해제 (fallback 타이머 포함)
     cleanupStep2();
@@ -203,79 +243,91 @@ export function useRiveCorrect({ onStep2Done }: UseRiveCorrectOptions = {}): Use
     step2PrevLeft.current  = left;
     step2PrevRight.current = right;
 
-    const r = new Rive({
-      src: '/rive/layer_step2.riv',
-      canvas,
-      artboard: 'step2',
-      stateMachines: 'Step2SM',
-      layout: new Layout({ fit: Fit.Cover, alignment: Alignment.Center }),
-      autoplay: true,
-      onLoad: () => {
-        // ★ ViewModel(Data Binding) 방식으로 프로퍼티 접근
-        const vm   = r.viewModelByName('Step2VM');
-        const inst = vm?.defaultInstance?.() ?? null;
-        if (inst) {
-          r.bindViewModelInstance(inst);
-          const leftProp  = inst.number('left/skinID');
-          const rightProp = inst.number('right/skinID');
-          if (leftProp)  leftProp.value  = left;
-          if (rightProp) rightProp.value = right;
-          inst.trigger('step2Correct')?.trigger();
-        } else {
-          console.warn('[useRiveCorrect] Step2VM 인스턴스를 찾을 수 없습니다.');
-        }
+    const callId = ++step2CallIdRef.current;
+    loadRivBuffer('/rive/layer_step2.riv')
+      .then((buffer) => {
+        // 로딩 중 새 호출이 끼어들었거나 canvas가 사라졌으면 중단
+        if (callId !== step2CallIdRef.current) return;
+        const canvas = step2CanvasRef.current;
+        if (!canvas) return;
 
-        // ★ layerDone 이벤트 구독 — 애니메이션 종료 시 cleanup
-        const handleRiveEvent = (event: RiveEvent) => {
-          const name =
-            (event.data as { name?: string } | undefined)?.name ??
-            (event as unknown as { name?: string }).name;
-          if (name === 'layerDone') {
-            // ★ React 리렌더를 기다리지 않고 DOM을 직접 즉시 비활성화
-            if (step2CanvasRef.current) {
-              step2CanvasRef.current.style.pointerEvents = 'none';
+        const r = new Rive({
+          buffer,
+          canvas,
+          artboard: 'step2',
+          stateMachines: 'Step2SM',
+          layout: new Layout({ fit: Fit.Cover, alignment: Alignment.Center }),
+          autoplay: true,
+          onLoad: () => {
+            // ★ ViewModel(Data Binding) 방식으로 프로퍼티 접근
+            const vm   = r.viewModelByName('Step2VM');
+            const inst = vm?.defaultInstance?.() ?? null;
+            if (inst) {
+              r.bindViewModelInstance(inst);
+              const leftProp  = inst.number('left/skinID');
+              const rightProp = inst.number('right/skinID');
+              if (leftProp)  leftProp.value  = left;
+              if (rightProp) rightProp.value = right;
+              inst.trigger('step2Correct')?.trigger();
+            } else {
+              console.warn('[useRiveCorrect] Step2VM 인스턴스를 찾을 수 없습니다.');
             }
-            onStep2DoneRef.current?.();
-            // 이미 cleanup된 경우 재호출 방지
-            if (step2RiveRef.current === r) {
-              cleanupStep2();
+
+            // ★ layerDone 이벤트 구독 — 애니메이션 종료 시 cleanup
+            const handleRiveEvent = (event: RiveEvent) => {
+              const name =
+                (event.data as { name?: string } | undefined)?.name ??
+                (event as unknown as { name?: string }).name;
+              if (name === 'layerDone') {
+                // ★ React 리렌더를 기다리지 않고 DOM을 직접 즉시 비활성화
+                if (step2CanvasRef.current) {
+                  step2CanvasRef.current.style.pointerEvents = 'none';
+                }
+                onStep2DoneRef.current?.();
+                // 이미 cleanup된 경우 재호출 방지
+                if (step2RiveRef.current === r) {
+                  cleanupStep2();
+                }
+              }
+            };
+            r.on(EventType.RiveEvent, handleRiveEvent);
+
+            // canvas 크기 초기화
+            const el = step2CanvasRef.current;
+            if (el) {
+              el.width  = window.innerWidth;
+              el.height = window.innerHeight;
+              r.resizeDrawingSurfaceToCanvas();
             }
-          }
-        };
-        r.on(EventType.RiveEvent, handleRiveEvent);
 
-        // canvas 크기 초기화
-        const el = step2CanvasRef.current;
-        if (el) {
-          el.width  = window.innerWidth;
-          el.height = window.innerHeight;
-          r.resizeDrawingSurfaceToCanvas();
-        }
+            // resize 리스너 등록
+            const handleResize = () => {
+              const el = step2CanvasRef.current;
+              if (!el || !step2RiveRef.current) return;
+              el.width  = window.innerWidth;
+              el.height = window.innerHeight;
+              step2RiveRef.current.resizeDrawingSurfaceToCanvas();
+            };
+            step2ResizeRef.current = handleResize;
+            window.addEventListener('resize', handleResize);
 
-        // resize 리스너 등록
-        const handleResize = () => {
-          const el = step2CanvasRef.current;
-          if (!el || !step2RiveRef.current) return;
-          el.width  = window.innerWidth;
-          el.height = window.innerHeight;
-          step2RiveRef.current.resizeDrawingSurfaceToCanvas();
-        };
-        step2ResizeRef.current = handleResize;
-        window.addEventListener('resize', handleResize);
+            // ★ 폴백: layerDone 이벤트가 오지 않는 경우를 대비해 일정 시간 후 강제 종료
+            step2FallbackTimerRef.current = window.setTimeout(() => {
+              console.warn('[Step2] layerDone 이벤트 미수신 — 폴백으로 onStep2Done 호출');
+              onStep2DoneRef.current?.();
+              if (step2RiveRef.current === r) {
+                cleanupStep2();
+              }
+              step2FallbackTimerRef.current = null;
+            }, 2000);
+          },
+        });
 
-        // ★ 폴백: layerDone 이벤트가 오지 않는 경우를 대비해 일정 시간 후 강제 종료
-        step2FallbackTimerRef.current = window.setTimeout(() => {
-          console.warn('[Step2] layerDone 이벤트 미수신 — 폴백으로 onStep2Done 호출');
-          onStep2DoneRef.current?.();
-          if (step2RiveRef.current === r) {
-            cleanupStep2();
-          }
-          step2FallbackTimerRef.current = null;
-        }, 2000);
-      },
-    });
-
-    step2RiveRef.current = r;
+        step2RiveRef.current = r;
+      })
+      .catch((error) => {
+        console.warn('[useRiveCorrect] layer_step2.riv 로딩 실패', error);
+      });
   }, [cleanupStep2]);
 
   return { step1CanvasRef, step2CanvasRef, fireStep1Correct, fireStep2Correct };

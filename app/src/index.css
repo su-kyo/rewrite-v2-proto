@@ -1,69 +1,26 @@
-/* ─── 폰트 ─────────────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+/* 폰트는 index.html <link>로 로드 */
 
-/* ─── CSS 커스텀 프로퍼티 ────────────────────────────────────────────────────── */
+/* ─── CSS 커스텀 프로퍼티 (실사용 값만 유지) ─────────────────────────────────── */
 :root {
   /* 색상 팔레트 */
   --color-primary-dark:     #342200;
   --color-primary-light:    #F4EAD6;
-  --color-primary-lighter:  #FFD8B1;
-  --color-primary-bg:       #fefaf2;
-  --color-primary-border:   #FAC38D;
-  --color-secondary-light:  #FFE7CF;
-  --color-secondary-lighter:#FFFFFF;
-  --color-success:          #BCE7BE;
-  --color-success-text:     #003C25;
-  --color-warning:          #FDD763;
-  --color-info-green:       #30D46C;
-  --color-info-done:        #FCB837;
-  --color-info-yet:         #FFE7CF;
-  --color-text-primary:     #353535;
-  --color-text-white:       #ffffff;
-  --color-border-light:     #F1F5F9;
   --color-bg-light:         #f5e8d0;
-  --color-button-submit:    #1947D0;
-  --color-button-submit-hl: #2D62FF;
-  --color-button-next:      #109541;
-  --color-button-next-hl:   #22C55E;
 
   /* 전환값 */
   --transition-default:     0.45s ease-in-out;
-  --transition-fast:        0.2s ease;
   --transition-slow:        0.4s ease;
-  --transition-fade:        0.15s ease;
 
   /* z-index 계층 */
-  --z-background:    0;
   --z-content:       10;
-  --z-overlay:       200;
-  --z-modal:         10000;
-  --z-dropdown:      9999;
 
   /* 스페이싱 */
-  --space-xs:        2px;
   --space-sm:        4px;
   --space-md:        8px;
-  --space-lg:        12px;
   --space-xl:        16px;
-  --space-2xl:       20px;
-  --space-3xl:       24px;
 
   /* 보더 반지름 */
-  --radius-sm:       6px;
-  --radius-md:       8px;
   --radius-lg:       12px;
-  --radius-xl:       16px;
-  --radius-2xl:      24px;
-  --radius-3xl:      28px;
-  --radius-full:     30px;
-  --radius-circle:   50%;
-
-  /* 그림자 */
-  --shadow-sm:       0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-md:       0px 4px 4px 0px rgba(0, 0, 0, 0.25);
-  --shadow-lg:       0px 4px 50px 0px rgba(0, 0, 0, 0.2);
-  --shadow-xl:       0px 0px 15px 0px rgba(0, 0, 0, 0.3);
-  --shadow-modal:    0 8px 40px rgba(0, 0, 0, 0.5);
 }
 
 /* ─── 리셋 & 기본 ────────────────────────────────────────────────────────────── */
@@ -106,15 +63,6 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-}
-
-.bg-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
 }
 
 .content {
@@ -588,7 +536,7 @@ body {
  * z-index 계층
  *  0   : .rive-background  (background.riv)
  *  10  : .content          (UI)
- *  200 : .rive-overlay     (layer_correct.riv)
+ *  200 : .rive-overlay     (layer_step1.riv / layer_step2.riv)
  */
 
 /* background.riv: 항상 최하단, 화면 전체를 cover */
@@ -602,7 +550,7 @@ body {
   pointer-events: none;
 }
 
-/* layer_correct.riv 공통 — UI 위, 클릭 통과 */
+/* 정답 오버레이(layer_step1/step2.riv) 공통 — UI 위, 클릭 통과 */
 .rive-overlay {
   position: fixed;
   z-index: 200;

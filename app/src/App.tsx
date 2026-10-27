@@ -100,7 +100,7 @@ export default function App() {
         if (newRemaining === 0) {
           // 모두 찾음 → Rive step1 정답 애니메이션 → Step2 전환
           setTimeout(() => {
-            fireStep1Correct(); // ★ layer_correct step1 트리거 (HTML dim 제거)
+            fireStep1Correct(); // ★ layer_step1.riv 정답 트리거 (HTML dim 제거)
             setTimeout(() => {
               setStep(2);
             }, 1200);

@@ -6,30 +6,30 @@ export const QUESTIONS: QuestionData[] = [
   {
     image: imgQ1,
     parts: [
-      { type: 'plain',  text: '뉴스 발표는' },
-      { type: 'token',  id: 't1', text: '진행',    isCorrect: false },
-      { type: 'plain',  text: '순서에 맞게 준비해야 해요.' },
-      { type: 'plain',  text: '뉴스 내용은' },
-      { type: 'token',  id: 't2', text: '과학자',  isCorrect: true },
-      { type: 'plain',  text: '가' },
-      { type: 'token',  id: 't3', text: '추리한 것', isCorrect: true },
+      { type: 'plain',  text: '여행을 떠나기 전에는' },
+      { type: 'token',  id: 't1', text: '필요한 물건', isCorrect: false },
       { type: 'plain',  text: '을' },
-      { type: 'token',  id: 't4', text: '보도',    isCorrect: false },
-      { type: 'plain',  text: '하는 것이에요.' },
+      { type: 'token',  id: 't2', text: '나중에',     isCorrect: true },
+      { type: 'plain',  text: '챙겨야 해요.' },
+      { type: 'plain',  text: '가방에' },
+      { type: 'token',  id: 't3', text: '여벌 옷과 세면도구', isCorrect: false },
+      { type: 'plain',  text: '를' },
+      { type: 'token',  id: 't4', text: '빼고',       isCorrect: true },
+      { type: 'plain',  text: '떠나요.' },
     ],
     dropdownDefs: {
       t2: {
-        defaultValue: '과학자',
+        defaultValue: '나중에',
         options: [
-          { value: '검사',  isCorrect: false },
-          { value: '기자',  isCorrect: true  },
+          { value: '늦게', isCorrect: false },
+          { value: '미리', isCorrect: true  },
         ],
       },
-      t3: {
-        defaultValue: '추리한 것',
+      t4: {
+        defaultValue: '빼고',
         options: [
-          { value: '연구한 것', isCorrect: false },
-          { value: '취재한 것', isCorrect: true  },
+          { value: '숨기고', isCorrect: false },
+          { value: '넣고',   isCorrect: true  },
         ],
       },
     },

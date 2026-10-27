@@ -1,7 +1,7 @@
 /**
  * RiveCorrectOverlay
  *
- * layer_correct.riv 의 step1 / step2 아트보드 canvas 오버레이.
+ * layer_step1.riv / layer_step2.riv 정답 애니메이션 canvas 오버레이.
  * - z-index: 200, pointer-events: none (하위 인터랙션 통과)
  * - Step1: 320×720 비율, 브라우저 height 기준, 수평 중앙
  * - Step2: 전체 화면 cover
